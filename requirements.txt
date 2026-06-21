@@ -1,0 +1,17 @@
+# Intelligent Candidate Ranker - Requirements
+# Python 3.9+
+
+# Core (no external dependencies for basic ranking!)
+# The core ranking system uses only Python standard library.
+
+# For Streamlit demo app
+streamlit>=1.28.0
+
+# Optional: For semantic embeddings (pre-computation)
+# Uncomment these if you want to use semantic matching
+# sentence-transformers>=2.2.0
+# numpy>=1.24.0
+# faiss-cpu>=1.7.4
+
+# For development
+# pandas>=2.0.0
