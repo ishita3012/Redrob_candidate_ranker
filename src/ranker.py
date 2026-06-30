@@ -28,6 +28,30 @@ def stream_candidates(path: str):
                 yield json.loads(line)
 
 
+def rank_candidate_list(candidates: List[Dict[str, Any]], spec: JDSpec,
+                        backend: str = "tfidf", top_n: int = 100
+                        ) -> Tuple[List[Dict[str, Any]], List[Tuple]]:
+    """Core ranking over an in-memory list. Returns (rows, top[(cand, breakdown, score)])."""
+    # Stage 1: recall
+    survivors = [c for c in candidates if passes_prefilter(c, spec)]
+    # semantic scores over the recalled pool
+    sem = compute_semantic_scores(survivors, spec, backend=backend)
+    # Stage 2: rerank
+    scored: List[Tuple[Dict[str, Any], Dict[str, Any], float]] = []
+    for c in survivors:
+        b = compute_relevance(c, spec, sem.get(c["candidate_id"], 0.5))
+        scored.append((c, b, round(b["composite"], SCORE_DECIMALS)))
+    scored.sort(key=lambda x: (-x[2], x[0]["candidate_id"]))
+    top = scored[:top_n]
+    rows = [{
+        "candidate_id": c["candidate_id"],
+        "rank": rk,
+        "score": score,
+        "reasoning": generate_reasoning(c, b, rk, top_n),
+    } for rk, (c, b, score) in enumerate(top, start=1)]
+    return rows, top
+
+
 def rank(candidates_path: str, jd_path: str, out_path: str,
          backend: str = "tfidf", top_n: int = 100, verbose: bool = True
          ) -> Dict[str, Any]:
@@ -36,40 +60,16 @@ def rank(candidates_path: str, jd_path: str, out_path: str,
     if verbose:
         print(spec.summary())
 
-    # ---- Stage 1: recall ----
-    survivors = [c for c in stream_candidates(candidates_path) if passes_prefilter(c, spec)]
+    candidates = list(stream_candidates(candidates_path))
+    rows, top = rank_candidate_list(candidates, spec, backend=backend, top_n=top_n)
     if verbose:
-        print(f"\n[recall] {len(survivors)} candidates passed Stage-1 gates "
-              f"({time.time()-t0:.1f}s)")
-
-    # ---- semantic scores over the recalled pool ----
-    sem = compute_semantic_scores(survivors, spec, backend=backend)
-
-    # ---- Stage 2: rerank ----
-    scored: List[Tuple[Dict[str, Any], Dict[str, Any], float]] = []
-    for c in survivors:
-        b = compute_relevance(c, spec, sem.get(c["candidate_id"], 0.5))
-        score = round(b["composite"], SCORE_DECIMALS)
-        scored.append((c, b, score))
-
-    scored.sort(key=lambda x: (-x[2], x[0]["candidate_id"]))
-    top = scored[:top_n]
-
-    rows = []
-    for rk, (c, b, score) in enumerate(top, start=1):
-        rows.append({
-            "candidate_id": c["candidate_id"],
-            "rank": rk,
-            "score": score,
-            "reasoning": generate_reasoning(c, b, rk, top_n),
-        })
+        survivors = sum(1 for c in candidates if passes_prefilter(c, spec))
+        print(f"\n[recall] {survivors} candidates passed Stage-1 gates")
 
     _save(rows, out_path)
     if verbose:
         print(f"[done] wrote {len(rows)} rows to {out_path} in {time.time()-t0:.1f}s")
-
-    return {"spec": spec, "survivors": survivors, "top": top, "rows": rows,
-            "elapsed": time.time() - t0}
+    return {"spec": spec, "top": top, "rows": rows, "elapsed": time.time() - t0}
 
 
 def _save(rows: List[Dict[str, Any]], out_path: str):

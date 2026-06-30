@@ -1,17 +1,12 @@
-# Intelligent Candidate Ranker - Requirements
-# Python 3.9+
+# Intelligent Candidate Ranker — requirements (Python 3.9+)
 
-# Core (no external dependencies for basic ranking!)
-# The core ranking system uses only Python standard library.
+# Core ranking with the default TF-IDF backend uses the Python standard library
+# only — `python src/rank.py --backend tfidf` needs nothing below.
 
-# For Streamlit demo app
+# Semantic embeddings backend (precompute.py + rank.py --backend stmodel):
+sentence-transformers>=2.2.0
+numpy>=1.24.0
+
+# Sandbox / demo app (app.py):
 streamlit>=1.28.0
-
-# Optional: For semantic embeddings (pre-computation)
-# Uncomment these if you want to use semantic matching
-# sentence-transformers>=2.2.0
-# numpy>=1.24.0
-# faiss-cpu>=1.7.4
-
-# For development
-# pandas>=2.0.0
+pandas>=2.0.0
