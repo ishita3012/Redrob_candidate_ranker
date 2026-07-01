@@ -1,0 +1,83 @@
+# Redrob Hackathon — Submission Metadata
+# Fields marked  # CONFIRM  need you to verify/fill before submitting.
+
+# ============================================================================
+# Team identity
+# ============================================================================
+team_name: "TEAM-NAME"  # CONFIRM — used in leaderboard and announcements
+
+primary_contact:
+  name: "Ishita Rastogi"
+  email: "ishitarastogi30@gmail.com"
+  phone: "+91-XXXXXXXXXX"          # CONFIRM
+
+team_members:
+  - name: "Ishita Rastogi"
+    email: "ishitarastogi30@gmail.com"
+    role: "Team Lead / ML Engineer"
+  # CONFIRM — add teammates if not solo
+
+# ============================================================================
+# Code and reproducibility
+# ============================================================================
+github_repo: "https://github.com/ishita3012/Redrob"
+
+sandbox_link: "https://huggingface.co/spaces/ishita3012/redrob-ranker"  # CONFIRM — create the Space, then paste its URL
+
+reproduce_command: "python src/rank.py --candidates ./candidates.jsonl --jd job_description.md --out submission.csv"
+# Default TF-IDF backend: CPU-only, no network, ~14s on 100K, standard library only.
+
+# ============================================================================
+# Compute environment
+# ============================================================================
+compute:
+  platform: "MacBook (Apple Silicon)"           # CONFIRM
+  cpu_cores: 8
+  ram_gb: 16                                     # limit; actual peak usage < 2 GB
+  python_version: "3.13.13"
+  os: "macOS 13.3"
+  uses_gpu_for_inference: false
+  has_network_during_ranking: false
+  pre_computation_required: false               # true only if submitting with --backend stmodel
+  pre_computation_time_minutes: 0               # ~5-10 min if precomputing MiniLM embeddings
+
+# ============================================================================
+# AI tools declaration  (transparency only; honest declaration is not penalized)
+# ============================================================================
+ai_tools_used:
+  - "Claude"
+
+ai_usage_summary: |
+  Used Claude for architecture discussion, code, and documentation, as an
+  engineering collaborator. Every design decision was validated against the actual
+  100K dataset (distribution analysis, honeypot calibration, prefilter sizing,
+  behavioral percentiles) — see the git history for the real iteration. No candidate
+  data was sent to any hosted LLM; all ranking runs locally on CPU with no network.
+
+# ============================================================================
+# Approach summary
+# ============================================================================
+methodology_summary: |
+  A JD-agnostic, two-stage retrieve->rank pipeline. The JD is parsed into a structured
+  spec (jd_spec) — titles, experience band, locations, must-have/disqualifier concepts,
+  evidence terms — so the ranker is not hardcoded to one JD. Stage 1 (recall) surgically
+  gates honeypots and keeps only candidates whose title or career-description *evidence*
+  matches the JD, cutting 100K to ~2.6K. Data analysis showed skills lists are uniform
+  noise (the keyword-stuffer trap), so fit is driven by domain evidence in career
+  descriptions, not skills. Stage 2 (rerank) scores composite = fit x availability x
+  (1 - disqualifier) x authenticity, where availability is a behavioral multiplier
+  calibrated to the pool's measured percentiles (per the JD's instruction to down-weight
+  unavailable candidates). Honeypot detection uses sharp impossibilities only; a
+  grad-year heuristic that false-flagged ~21K real candidates was rejected. Runtime ~14s
+  on CPU, no network. Semantic similarity embeds evidence text (not skills) against the
+  JD's ideal-candidate paragraph.
+
+# ============================================================================
+# Declarations
+# ============================================================================
+declarations:
+  read_submission_spec: true
+  code_is_original_work: true
+  no_collusion: true
+  honeypot_check_done: true         # explicit surgical honeypot detection; 0 in top 100
+  reproduction_tested: true
