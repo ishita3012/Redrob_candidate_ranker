@@ -1,287 +1,166 @@
-# Intelligent Candidate Ranker
+# Intelligent Candidate Ranker — Redrob Hackathon
 
-## Redrob Hackathon - Data & AI Challenge
+A JD-agnostic, two-stage **retrieve → rank** system that ranks 100,000 candidates
+against a job description by reasoning about *evidence* and *availability*, not keyword
+counts. Built so the JD is **data flowing through a general pipeline**, not constants
+baked into the code.
 
-An evidence-based candidate ranking system that revolutionizes hiring by going far beyond keyword matching.
+> One-line reproduce (CPU-only, no network):
+> ```bash
+> python src/rank.py --candidates ../candidates.jsonl --jd job_description.md --out submission.csv
+> ```
+> ~14s on the full 100K pool · validator passes · 0 honeypots in top 100.
 
 ---
 
-## Quick Start
+## The problem (and the traps)
 
-```bash
-# 1. Install dependencies
-pip install -r requirements.txt
+The dataset is built to punish keyword matching. Our own analysis of the 100K pool:
 
-# 2. Run the ranker
-cd src
-python main.py --candidates ../../candidates.jsonl --output ../submission.csv
+| Finding | Implication for the design |
+|---|---|
+| Only **0.9%** have a genuine ML title; 99% are decoy roles (HR, sales, ops, …) | The relevant pool is tiny — recall must be precise |
+| Skills lists are **uniform noise** (every skill ~12,000 occurrences) | **Never score the skills list** — it's bait for keyword-stuffers |
+| **5,425** keyword-stuffers (non-tech title + 5+ AI skills) | Must be gated, not just down-weighted |
+| ~**80** honeypots with subtly impossible profiles | Surgical detection; >10% in top 100 = disqualified |
+| Real evidence lives in **career-history descriptions**, not skills | Descriptions + title are the trustworthy content signal |
 
-# 3. Validate submission
-cd ..
-python ../validate_submission.py submission.csv
+So the right answer is the one the JD describes: *"reason about the gap between what the
+JD says and what it means"*, and *"down-weight"* candidates who aren't actually available.
 
-# 4. (Optional) Run the demo app
-streamlit run app.py
+---
+
+## Approach: a two-stage retrieve → rank pipeline
+
+```
+OFFLINE (once, network allowed)        ONLINE (rank.py — CPU only, no network, ~14s)
+─────────────────────────────          ─────────────────────────────────────────────
+precompute.py                          jd_spec.py   parse JD → JDSpec (no hardcoding)
+  MiniLM embeddings of evidence text       │
+  → artifacts/*.npy                     STAGE 1 — Recall  (gates.py)
+                                          drop honeypots (hard) · keep title-match
+                                          ∪ core-evidence-in-descriptions  → ~2.6K
+                                            │
+                                        STAGE 2 — Rerank  (features.py + scoring.py)
+                                          fit = Σ(feature × weight)
+                                          composite = fit × availability
+                                                          × (1 − disqualifier)
+                                                          × authenticity
+                                          sort → top 100 → reasoning → submission.csv
 ```
 
-**That's it!** The ranker processes 100K candidates in ~40 seconds.
+Full design rationale and per-module detail is in [`ARCHITECTURE.md`](ARCHITECTURE.md).
+
+### Key design decisions (each grounded in the data, not taste)
+
+1. **The JD is parsed, not hardcoded.** `jd_spec.py` turns any JD into a structured
+   spec (role titles, experience band, locations, must-have/disqualifier *concepts*,
+   evidence terms). Swap the JD file → new ranking, **no code change**.
+2. **Evidence over skills.** Fit is driven by domain-specific proof in career
+   descriptions; the skills list (proven noise) only weakly corroborates.
+3. **Behavioral is a multiplier, not a flat term.** The JD says *down-weight*
+   unavailable people — so availability modifies fit (≈0.5–1.10×), calibrated to the
+   pool's measured percentiles, rather than adding a fixed 25%.
+4. **Traps are gated, not nudged.** Honeypots and keyword-stuffers are removed at
+   recall, so they cannot reach the top by construction.
+5. **Surgical honeypot detection.** Only sharp impossibilities (expert skill with 0
+   months used; a skill used longer than the entire career). We explicitly *dropped*
+   a grad-year heuristic that false-flagged ~21,000 legitimate candidates.
+
+### Behavioral signals actually change the ranking (real example)
+
+A **Senior NLP Engineer (6.8y)** ranks **#4 on pure fit** — strong retrieval/eval
+evidence at a product company. But a **7% recruiter response rate** and **90-day notice**
+give a **0.62× availability multiplier**, dropping them **out of the top 100**: perfect
+on paper, not actually hireable. Conversely an **86%-response ML Engineer** rises from
+fit-#133 to **#66**. This is the differentiator the challenge is fishing for.
 
 ---
 
-## The Problem We're Solving
+## Results (verified on the full 100K)
 
-Traditional ATS systems fail because they use **keyword matching**, which:
-
-1. **Rewards keyword stuffing** — A Marketing Manager with "PyTorch, TensorFlow, NLP" in their skills beats actual ML engineers
-2. **Ignores behavioral signals** — A perfect-on-paper candidate who hasn't logged in for 6 months isn't actually available
-3. **Can't detect impossible profiles** — Honeypots with fabricated experience slip through
-4. **Misses hidden gems** — Backend Engineers who built recommendation systems aren't found because they don't have "ML" in their title
-
----
-
-## Our Solution: Evidence-Based Ranking
-
-We score candidates across **8 dimensions**, each addressing a failure mode:
-
-### Scoring Dimensions
-
-| Dimension | Weight | What It Measures |
-|-----------|--------|------------------|
-| **Semantic** | 15% | Embedding similarity to JD |
-| **Role Fit** | 15% | Title alignment, experience range |
-| **Skill Match** | 15% | Skills with trust verification |
-| **ML Evidence** | 15% | Proof of work in career descriptions |
-| **Behavioral** | 25% | Response rate, activity, availability |
-| **Trajectory** | 10% | Career progression, stability |
-| **Education** | 3% | Institution tier, field relevance |
-| **GitHub** | 2% | Coding activity |
-
-### Key Innovations
-
-1. **Skill Trust Scoring**
-   - We don't just check if a skill is listed
-   - We verify through: duration, endorsements, assessments, career evidence
-   - A skill with 5 years + 30 endorsements + 85% assessment >> skill with 0 evidence
-
-2. **Behavioral Signals (25% of score)**
-   - `recruiter_response_rate`: Will they reply?
-   - `last_active_date`: Are they looking?
-   - `notice_period_days`: Can they join quickly?
-   - `interview_completion_rate`: Will they show up?
-
-3. **Honeypot Detection**
-   - Expert skills with 0 duration
-   - Skill duration > total experience
-   - Impossible career timelines
-
-4. **Disqualifier Detection**
-   - Keyword stuffers (irrelevant title + AI skills)
-   - Only consulting experience
-   - Title chasers (avg tenure < 18 months)
-   - Research-only (no production)
+| Metric | Value |
+|---|---|
+| Ranking-step runtime | ~14s (budget: 5 min) |
+| Peak memory | < 2 GB (budget: 16 GB) |
+| Honeypots in top 100 | 0 |
+| Stage-1 recall pool | 2,658 candidates |
+| Reasoning uniqueness | 100/100 distinct |
+| Top-100 ML-titled / India-based | 89 / 90 |
+| Validator | **Submission is valid.** |
 
 ---
 
-## Architecture
+## Reproduce
+
+```bash
+pip install -r requirements.txt           # only needed for embeddings/sandbox
+
+# Default: TF-IDF semantic backend — standard library only, fully reproducible
+python src/rank.py --candidates ../candidates.jsonl --jd job_description.md --out submission.csv
+
+# Validate
+python ../validate_submission.py submission.csv
+```
+
+**Optional embeddings upgrade** (sentence-transformers; run once, offline/network allowed):
+```bash
+python src/precompute.py --candidates ../candidates.jsonl --jd job_description.md   # → artifacts/
+python src/rank.py --candidates ../candidates.jsonl --jd job_description.md \
+                   --out submission.csv --backend stmodel
+```
+The embeddings are a quality upgrade; the system runs fully on the TF-IDF backend with
+no model or network.
+
+---
+
+## Compute constraints
+
+| Constraint | Limit | This system |
+|---|---|---|
+| Runtime | ≤ 5 min | ~14s |
+| Memory | ≤ 16 GB | < 2 GB |
+| Compute | CPU only | ✅ |
+| Network (rank step) | off | ✅ (embeddings precomputed offline) |
+
+---
+
+## Sandbox / demo
+
+`app.py` is a Streamlit app (upload a candidate sample → ranked CSV + per-candidate
+score breakdown). Run locally with `streamlit run app.py`; deploy to Hugging Face
+Spaces (see `ARCHITECTURE.md` → *Deploying the sandbox*).
+
+**Live demo:** _<add your Hugging Face Space URL here>_
+
+---
+
+## Repository layout
 
 ```
 Submission/
-├── app.py                 # Streamlit demo (sandbox)
-├── requirements.txt       # Dependencies
-├── README.md             # This file
+├── job_description.md        # JD = pipeline input (parsed, not hardcoded)
+├── sample_candidates.json    # small sample for the sandbox
+├── app.py                    # Streamlit sandbox
+├── requirements.txt
+├── ARCHITECTURE.md
 └── src/
-    ├── config.py         # JD requirements, weights, thresholds
-    ├── data_loader.py    # Load and parse candidates
-    ├── honeypot_detector.py  # Detect impossible profiles
-    ├── disqualifiers.py  # JD-specific red flags
-    ├── scorers.py        # Multi-dimensional scoring
-    ├── semantic.py       # Embedding-based matching (optional)
-    ├── ranker.py         # Main ranking logic
-    └── main.py           # CLI entry point
+    ├── jd_spec.py            # JD → structured JDSpec (concept library)
+    ├── gates.py             # Stage-1: honeypot detection + prefilter
+    ├── features.py          # Stage-2: per-candidate fit features
+    ├── scoring.py           # composite = fit × availability × (1−disq) × authenticity
+    ├── semantic.py          # evidence-vs-JD similarity (TF-IDF / embeddings)
+    ├── reasoning.py         # specific, varied, honest justifications
+    ├── ranker.py            # two-stage orchestration
+    ├── rank.py              # CLI entry point (single reproduce command)
+    └── precompute.py        # offline embedding generation
 ```
 
 ---
 
-## Results
+## AI tools declaration
 
-On the full 100K candidate dataset:
-
-| Metric | Value |
-|--------|-------|
-| Processing time | ~40 seconds |
-| Honeypots in top 100 | 0 |
-| Keyword stuffers in top 100 | 0 |
-| ML-titled candidates in top 100 | 100% |
-| Average response rate | 69% |
-| Average experience | 6.5 years |
-| Validation | PASSED |
-
----
-
-## How Each Component Works
-
-### 1. Role Fit (`score_role_fit`)
-
-```python
-# Checks:
-# - Is current title ML-relevant? (+0.4)
-# - ML roles in career history? (+0.1 each, max 0.3)
-# - Experience in 5-9 year range? (+0.2)
-# - In preferred locations? (+0.1)
-```
-
-### 2. Skill Trust (`compute_skill_trust`)
-
-```python
-# For each skill:
-trust = 0.1  # Base: listed it
-trust += min(duration_months / 48, 0.2)      # Duration
-trust += min(endorsements / 30, 0.15)         # Endorsements
-trust += (assessment_score / 100) * 0.3       # Platform verification
-trust += 0.1 if in_job_descriptions else 0    # Evidence of use
-```
-
-### 3. Honeypot Detection
-
-```python
-# Detected if:
-# - 3+ expert skills with 0 months duration
-# - Skill duration > total experience by 24+ months
-# - Experience > years since graduation
-```
-
-### 4. Behavioral Scoring
-
-```python
-# Response rate: 0.7+ is good, <0.2 is red flag
-# Last active: <14 days is good, >180 days is penalty
-# Notice period: <30 days preferred, <60 okay
-# Open to work: bonus if true
-```
-
----
-
-## Reproduction
-
-### Step 1: Clone and Install
-
-```bash
-git clone <your-repo>
-cd Submission
-pip install -r requirements.txt
-```
-
-### Step 2: Run Ranking
-
-```bash
-cd src
-python main.py --candidates ../../candidates.jsonl --output ../submission.csv
-```
-
-### Step 3: Validate
-
-```bash
-cd ..
-python ../validate_submission.py submission.csv
-```
-
-Expected output: `Submission is valid.`
-
----
-
-## Demo / Sandbox
-
-We provide a Streamlit app for interactive exploration:
-
-```bash
-streamlit run app.py
-```
-
-Features:
-- Upload JSON/JSONL candidate files
-- See rankings with explanations
-- Explore individual candidate scores
-- Download results as CSV
-
-**Live demo**: [Link to HuggingFace Space or Streamlit Cloud]
-
----
-
-## Semantic Embeddings (Optional)
-
-For even better matching, you can enable semantic embeddings:
-
-```bash
-# 1. Install dependencies
-pip install sentence-transformers numpy
-
-# 2. Pre-compute embeddings (one-time, ~5-10 min)
-cd src
-python semantic.py --precompute --candidates ../../candidates.jsonl
-
-# 3. Run with semantic matching
-python main.py --candidates ../../candidates.jsonl --output ../submission.csv --semantic
-```
-
-This adds embedding-based similarity as 15% of the total score.
-
----
-
-## Compute Constraints
-
-Our system meets all hackathon requirements:
-
-| Constraint | Requirement | Our System |
-|------------|-------------|------------|
-| Runtime | < 5 minutes | ~40 seconds |
-| Memory | < 16 GB | ~2 GB peak |
-| Compute | CPU only | ✅ No GPU |
-| Network | Offline | ✅ No API calls |
-
----
-
-## Why This Approach Works
-
-1. **Evidence over claims**: We verify skills through multiple signals, not just listings
-2. **Behavioral signals matter**: 25% weight ensures we find *available* candidates
-3. **Disqualifiers first**: We filter traps before scoring
-4. **Honeypot resistant**: We catch impossible profiles
-5. **Explainable**: Every ranking has human-readable reasoning
-6. **Fast**: 40 seconds for 100K candidates
-
----
-
-## Files
-
-| File | Purpose |
-|------|---------|
-| `submission.csv` | Final ranking output |
-| `app.py` | Streamlit demo |
-| `src/main.py` | CLI entry point |
-| `src/config.py` | All configuration |
-| `src/ranker.py` | Main ranking logic |
-| `src/scorers.py` | Scoring functions |
-| `src/honeypot_detector.py` | Honeypot detection |
-| `src/disqualifiers.py` | Red flag detection |
-| `src/semantic.py` | Embedding utilities |
-
----
-
-## AI Tools Declaration
-
-- **Claude**: Architecture design, code review
-- **GitHub Copilot**: Autocomplete
-
-No candidate data was sent to any LLM. All ranking is done locally.
-
----
-
-## Team
-
-*[Fill in your team details in submission_metadata.yaml]*
-
----
-
-## License
-
-MIT License
+Developed with AI assistance (Claude) for design discussion, code, and docs; all
+engineering decisions were validated against the actual dataset (see commit history for
+the real iteration). No candidate data was sent to any hosted service — ranking is fully
+local.
