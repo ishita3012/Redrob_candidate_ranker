@@ -91,26 +91,33 @@ title-chaser, research-only-no-production. Each contributes a multiplicative pen
 
 | Feature | Weight | What it measures |
 |---|---|---|
-| `evidence` | 0.30 | Count/depth of core domain evidence in descriptions |
-| `title` | 0.22 | Role/adjacent title match, seniority, prior ML roles |
-| `semantic` | 0.18 | Similarity of evidence text to the JD ideal-candidate text |
-| `product` | 0.12 | Fraction of career at product (non-consulting) companies |
-| `experience` | 0.10 | Smooth fit to the JD band (soft, decays outside) |
+| `evidence` | 0.28 | Count/depth of core domain evidence in descriptions |
+| `title` | 0.20 | Role/adjacent title match, seniority, prior ML roles |
+| `semantic` | 0.17 | Similarity of evidence text to the JD ideal-candidate text |
+| `product` | 0.11 | Fraction of career at product (non-consulting) companies |
+| `experience` | 0.09 | Smooth fit to the JD band (soft, decays outside) |
+| `stability` | 0.07 | Tenure pattern — demotes title-chasers (JD rejects ~1.5y switching) |
 | `location` | 0.05 | Preferred city / in-country / relocatable / outside |
 | `skill_corroboration` | 0.03 | Platform-verified assessment scores only |
 
 Weights reflect the empirical reality that evidence + title carry the signal and skills
 are noise.
 
-**Composite** (`compute_relevance`):
+**Score** (`compute_relevance`) — a two-factor model from the JD's own "great fit but
+not actually available" framing:
 ```
-composite = fit × availability × (1 − disqualifier_penalty) × authenticity
+score        = relevance × reachability
+relevance    = trust × Σ(feature × weight) × (1 − red_flag_penalty)
+reachability = behavioral availability, bounded ≈[0.5, 1.10]
 ```
-- **availability** (`availability_multiplier`, ≈0.5–1.10): response rate, recency,
-  open-to-work, notice, interview-completion — thresholds set to measured percentiles.
-  A modifier, per the JD, not an additive term.
-- **authenticity** = `1 − 0.5 × honeypot_suspicion` — a soft down-weight for borderline
-  profiles that aren't hard honeypots.
+- **relevance**: how well the candidate fits the JD, discounted by `trust`
+  (`1 − 0.5 × honeypot_suspicion`, for borderline profiles) and by the JD's explicit
+  red flags (consulting-only, title-chasing, research-only — which also surface directly
+  in the `product`, `stability`, and `evidence` features).
+- **reachability** (`reachability`): response rate, recency, open-to-work, notice,
+  interview-completion — thresholds set to the pool's measured percentiles. A modifier,
+  per the JD, not an additive term. Traps (honeypots, keyword-stuffers) are removed by
+  the Stage-1 gates, not modelled here.
 
 ---
 

@@ -42,10 +42,10 @@ precompute.py                          jd_spec.py   parse JD → JDSpec (no hard
                                           ∪ core-evidence-in-descriptions  → ~2.6K
                                             │
                                         STAGE 2 — Rerank  (features.py + scoring.py)
-                                          fit = Σ(feature × weight)
-                                          composite = fit × availability
-                                                          × (1 − disqualifier)
-                                                          × authenticity
+                                          relevance    = trust × Σ(feature × weight)
+                                                                × (1 − red_flags)
+                                          reachability = behavioral availability
+                                          score = relevance × reachability
                                           sort → top 100 → reasoning → submission.csv
 ```
 
@@ -58,9 +58,10 @@ Full design rationale and per-module detail is in [`ARCHITECTURE.md`](ARCHITECTU
    evidence terms). Swap the JD file → new ranking, **no code change**.
 2. **Evidence over skills.** Fit is driven by domain-specific proof in career
    descriptions; the skills list (proven noise) only weakly corroborates.
-3. **Behavioral is a multiplier, not a flat term.** The JD says *down-weight*
-   unavailable people — so availability modifies fit (≈0.5–1.10×), calibrated to the
-   pool's measured percentiles, rather than adding a fixed 25%.
+3. **Relevance × reachability.** Straight from the JD's "great fit but not actually
+   available" framing: *relevance* (trust- and red-flag-adjusted JD fit) is separated
+   from *reachability* (a behavioral availability factor, ≈0.5–1.10×, calibrated to the
+   pool's measured percentiles) — rather than adding behavioral as a flat 25% term.
 4. **Traps are gated, not nudged.** Honeypots and keyword-stuffers are removed at
    recall, so they cannot reach the top by construction.
 5. **Surgical honeypot detection.** Only sharp impossibilities (expert skill with 0
