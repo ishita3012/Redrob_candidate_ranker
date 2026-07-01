@@ -126,7 +126,25 @@ def f_location(candidate: Dict[str, Any], spec: JDSpec) -> Tuple[float, List[str
 
 
 # ---------------------------------------------------------------------------
-# 6. Skill corroboration  (weak signal only — skills lists are noisy)
+# 6. Stability  (tenure pattern; the JD rejects title-chasers who switch ~1.5y)
+# ---------------------------------------------------------------------------
+def f_stability(candidate: Dict[str, Any], spec: JDSpec) -> Tuple[float, List[str]]:
+    hist = candidate.get("career_history", [])
+    if len(hist) < 2:
+        return 0.6, []  # too little history to judge
+    durations = [j.get("duration_months", 0) for j in hist]
+    avg = sum(durations) / len(durations)
+    if len(hist) >= 3 and avg < 18:
+        return 0.2, [f"frequent short stints (avg {avg:.0f}mo)"]
+    if avg >= 30:
+        return 1.0, ["stable tenure"]
+    if avg >= 20:
+        return 0.8, []
+    return 0.5, []
+
+
+# ---------------------------------------------------------------------------
+# 7. Skill corroboration  (weak signal only — skills lists are noisy)
 # ---------------------------------------------------------------------------
 def f_skill_corroboration(candidate: Dict[str, Any], spec: JDSpec) -> Tuple[float, List[str]]:
     assessments = candidate.get("redrob_signals", {}).get("skill_assessment_scores", {}) or {}
@@ -149,6 +167,7 @@ FEATURE_FUNCS = {
     "evidence": f_evidence,
     "product": f_product,
     "experience": f_experience,
+    "stability": f_stability,
     "location": f_location,
     "skill_corroboration": f_skill_corroboration,
 }

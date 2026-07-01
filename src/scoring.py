@@ -1,20 +1,22 @@
 """
-Stage-2 rerank scoring.
+Stage-2 rerank scoring — a two-factor model taken straight from the JD's own framing:
 
-    composite = fit × availability × (1 − disqualifier) × authenticity
+    score = relevance × reachability
 
-This mirrors how the JD frames the signals: fit is the relevance backbone;
-behavioral availability is a *modifier* (JD: "down-weight" unavailable people, not
-zero them); disqualifiers and honeypot-authenticity are gates/penalties.
+The JD says a candidate can be a great fit yet, "for hiring purposes, not actually
+available" — so we separate *how well they fit the role* (relevance) from *whether we
+can actually engage and hire them* (reachability). Traps (honeypots, keyword-stuffers)
+are removed upstream by the Stage-1 gates, not modelled here.
 
-Calibration is grounded in the measured distribution of THIS pool, so thresholds
-are meaningful rather than arbitrary:
-    recruiter_response_rate : p50 0.44, p75 0.62, p90 0.73
-    days since last_active  : p50 130,  p75 187,  p90 231
-    notice_period_days      : p50 90,   pref <=30
-    interview_completion    : p50 0.62
-The weights reflect the empirical finding that skills lists are noise and the
-trustworthy content signal is career-description EVIDENCE + title.
+  relevance    = trust × Σ(feature × weight) × (1 − red_flag_penalty)
+                 trust discounts profiles with consistency concerns; the JD's explicit
+                 negatives (consulting-only, title-chasing, research-only) are red flags
+                 AND are also reflected directly in features (product, stability, evidence).
+  reachability = a bounded behavioral factor calibrated to the pool's measured
+                 percentiles: response rate, recency, open-to-work, notice, interviews.
+
+Weights reflect the empirical finding that career-description EVIDENCE and title carry
+the signal, while skills lists are noise.
 """
 
 from __future__ import annotations
@@ -27,13 +29,14 @@ from gates import detect_disqualifiers, honeypot_suspicion
 
 REFERENCE_DATE = date(2026, 6, 21)
 
-# Fit weights (sum to 1.0). Evidence + title dominate; skills only corroborate.
+# Relevance feature weights (sum to 1.0).
 FIT_WEIGHTS: Dict[str, float] = {
-    "evidence": 0.30,
-    "title": 0.22,
-    "semantic": 0.18,
-    "product": 0.12,
-    "experience": 0.10,
+    "evidence": 0.28,
+    "title": 0.20,
+    "semantic": 0.17,
+    "product": 0.11,
+    "experience": 0.09,
+    "stability": 0.07,
     "location": 0.05,
     "skill_corroboration": 0.03,
 }
@@ -49,78 +52,85 @@ def _days_since(s: str) -> int:
 
 
 # ---------------------------------------------------------------------------
-# availability multiplier  (centered ~1.0, bounded so it modifies, not dominates)
+# reachability  (behavioral: can we actually engage and hire them?)
+# bounded ~[0.5, 1.10] so it modifies relevance rather than dominating it.
 # ---------------------------------------------------------------------------
-def availability_multiplier(candidate: Dict[str, Any], spec: JDSpec
-                            ) -> Tuple[float, List[str]]:
+def reachability(candidate: Dict[str, Any], spec: JDSpec) -> Tuple[float, List[str]]:
     if not spec.behavioral_priorities:
         return 1.0, []
     s = candidate.get("redrob_signals", {})
-    m = 1.0
+    r = 1.0
     reasons: List[str] = []
 
     rr = s.get("recruiter_response_rate", 0) or 0
     if rr >= 0.62:
-        m += 0.06; reasons.append(f"{rr:.0%} response rate")
+        r += 0.06; reasons.append(f"{rr:.0%} response rate")
     elif rr < 0.25:
-        m -= 0.18; reasons.append(f"low {rr:.0%} response rate")
+        r -= 0.18; reasons.append(f"low {rr:.0%} response rate")
 
     di = _days_since(s.get("last_active_date", ""))
     if di <= 45:
-        m += 0.05; reasons.append("recently active")
+        r += 0.05; reasons.append("recently active")
     elif di > 180:
-        m -= 0.20; reasons.append(f"inactive {di}d")
+        r -= 0.20; reasons.append(f"inactive {di}d")
 
     if s.get("open_to_work_flag"):
-        m += 0.05; reasons.append("open to work")
+        r += 0.05; reasons.append("open to work")
 
     notice = s.get("notice_period_days", 90)
     pref = spec.notice_pref_days or 30
     if notice <= pref:
-        m += 0.05; reasons.append(f"{notice}d notice")
+        r += 0.05; reasons.append(f"{notice}d notice")
     elif notice >= 120:
-        m -= 0.08; reasons.append(f"long {notice}d notice")
+        r -= 0.08; reasons.append(f"long {notice}d notice")
 
     ic = s.get("interview_completion_rate", 0) or 0
     if ic >= 0.8:
-        m += 0.03
+        r += 0.03
     elif ic < 0.4:
-        m -= 0.08; reasons.append("low interview completion")
+        r -= 0.08; reasons.append("low interview completion")
 
-    return max(0.5, min(1.10, m)), reasons
+    return max(0.5, min(1.10, r)), reasons
 
 
 # ---------------------------------------------------------------------------
-# fit  (weighted feature sum, with an injected semantic score)
+# relevance  (trust-and-flag-adjusted fit to the JD)
 # ---------------------------------------------------------------------------
-def compute_fit(candidate: Dict[str, Any], spec: JDSpec, semantic_score: float
-                ) -> Tuple[float, Dict[str, float], Dict[str, List[str]]]:
+def relevance(candidate: Dict[str, Any], spec: JDSpec, semantic_score: float
+              ) -> Tuple[float, Dict[str, float], Dict[str, List[str]], List[str], float]:
     feats = compute_features(candidate, spec)
     values = {k: v for k, (v, _) in feats.items()}
     reasons = {k: r for k, (_, r) in feats.items()}
     values["semantic"] = semantic_score
     reasons["semantic"] = []
+
     fit = sum(FIT_WEIGHTS[k] * values.get(k, 0.0) for k in FIT_WEIGHTS)
-    return fit, values, reasons
+    trust = 1.0 - 0.5 * honeypot_suspicion(candidate)          # profile consistency
+    flags, red_flag_penalty = detect_disqualifiers(candidate, spec)  # JD's explicit negatives
+
+    rel = fit * trust * (1.0 - red_flag_penalty)
+    return rel, values, reasons, flags, trust
 
 
 def compute_relevance(candidate: Dict[str, Any], spec: JDSpec,
                       semantic_score: float = 0.5) -> Dict[str, Any]:
-    fit, values, reasons = compute_fit(candidate, spec, semantic_score)
-    avail_mult, avail_reasons = availability_multiplier(candidate, spec)
-    disq_flags, disq_penalty = detect_disqualifiers(candidate, spec)
-    authenticity = 1.0 - 0.5 * honeypot_suspicion(candidate)
-
-    composite = fit * avail_mult * (1.0 - disq_penalty) * authenticity
+    rel, values, reasons, flags, trust = relevance(candidate, spec, semantic_score)
+    reach, reach_reasons = reachability(candidate, spec)
+    score = rel * reach
 
     return {
-        "composite": composite,
-        "fit": fit,
-        "availability": avail_mult,
-        "disqualifier_penalty": disq_penalty,
-        "authenticity": authenticity,
+        "score": score,
+        "composite": score,          # legacy alias
+        "relevance": rel,
+        "reachability": reach,
+        "availability": reach,       # legacy alias
+        "fit": sum(FIT_WEIGHTS[k] * values.get(k, 0.0) for k in FIT_WEIGHTS),
+        "trust": trust,
+        "authenticity": trust,       # legacy alias
+        "disqualifier_penalty": detect_disqualifiers(candidate, spec)[1],
         "feature_values": values,
         "feature_reasons": reasons,
-        "availability_reasons": avail_reasons,
-        "disqualifiers": disq_flags,
+        "reachability_reasons": reach_reasons,
+        "availability_reasons": reach_reasons,  # legacy alias
+        "disqualifiers": flags,
     }
