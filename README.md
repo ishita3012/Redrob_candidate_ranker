@@ -183,12 +183,3 @@ Submission/
     ├── rank.py              # CLI entry point (single reproduce command)
     └── precompute.py        # offline embedding generation
 ```
-
----
-
-## AI tools declaration
-
-Developed with AI assistance (Claude) for design discussion, code, and docs; all
-engineering decisions were validated against the actual dataset (see commit history for
-the real iteration). No candidate data was sent to any hosted service — ranking is fully
-local.
