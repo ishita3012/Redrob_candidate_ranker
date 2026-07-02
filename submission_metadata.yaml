@@ -22,7 +22,7 @@ team_members:
 # ============================================================================
 github_repo: "https://github.com/ishita3012/Redrob"
 
-sandbox_link: "https://ostrich-candidate-ranker.streamlit.app"  # CONFIRM — paste your deployed Streamlit Cloud URL
+sandbox_link: "https://redrob-candidate-ranker-challenge.streamlit.app/"
 
 reproduce_command: "python src/rank.py --candidates ./candidates.jsonl --jd job_description.md --out submission.csv"
 # Default TF-IDF backend: CPU-only, no network, ~14s on 100K, standard library only.

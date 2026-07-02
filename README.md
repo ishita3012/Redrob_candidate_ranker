@@ -155,11 +155,10 @@ no model or network.
 
 ## Sandbox / demo
 
-`app.py` is a Streamlit app (upload a candidate sample → ranked CSV + per-candidate
-score breakdown). Run locally with `streamlit run app.py`; deploy to Hugging Face
-Spaces (see `ARCHITECTURE.md` → *Deploying the sandbox*).
+`app.py` is a Streamlit app: upload a candidate file and get the ranked top candidates
+with the scoring-weight breakdown. Run locally with `streamlit run app.py`.
 
-**Live demo:** _<add your Hugging Face Space URL here>_
+**Live demo:** https://redrob-candidate-ranker-challenge.streamlit.app/
 
 ---
 
