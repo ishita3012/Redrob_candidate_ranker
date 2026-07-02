@@ -20,6 +20,7 @@ sys.path.insert(0, str(ROOT / "src"))
 from jd_spec import load_jd                  # noqa: E402
 from ranker import rank_candidate_list       # noqa: E402
 from scoring import FIT_WEIGHTS              # noqa: E402
+from gates import passes_prefilter           # noqa: E402
 
 st.set_page_config(page_title="Intelligent Candidate Ranker", page_icon="🎯", layout="wide")
 st.title("🎯 Intelligent Candidate Ranker")
@@ -44,19 +45,20 @@ with st.sidebar:
 # --- Single upload ---
 uploaded = st.file_uploader("Upload candidates (.json or .jsonl)", type=["json", "jsonl"])
 
-if uploaded is None:
-    st.info("⬆️  Upload a candidate file to rank. Each record should include the "
-            "candidate's profile, career history, skills, and engagement signals.")
-    st.stop()
-
-raw = uploaded.read().decode("utf-8")
-try:
-    candidates = json.loads(raw)
-    candidates = candidates if isinstance(candidates, list) else [candidates]
-except json.JSONDecodeError:
-    candidates = [json.loads(line) for line in raw.splitlines() if line.strip()]
+if uploaded is not None:
+    raw = uploaded.read().decode("utf-8")
+    try:
+        candidates = json.loads(raw)
+        candidates = candidates if isinstance(candidates, list) else [candidates]
+    except json.JSONDecodeError:
+        candidates = [json.loads(line) for line in raw.splitlines() if line.strip()]
+    source = "your uploaded file"
+else:
+    candidates = json.load(open(ROOT / "sample_candidates.json"))
+    source = "bundled demo sample — upload your own file above to rank it"
 
 spec = load_jd(str(ROOT / "job_description.md"))
+n_pass = sum(1 for c in candidates if passes_prefilter(c, spec))
 rows, top = rank_candidate_list(candidates, spec, backend="tfidf", top_n=top_n)
 
 # --- Enriched results for display ---
@@ -78,7 +80,10 @@ for r in rows:
         "Why": r["reasoning"],
     })
 
-st.success(f"Ranked {len(candidates)} candidates → showing top {len(rows)}.")
+st.success(f"{len(candidates)} candidates ({source}) · **{n_pass} passed the relevance "
+           f"filter** · showing top {len(rows)}.")
+st.caption("Candidates below the relevance filter (irrelevant roles, keyword-stuffers, "
+           "honeypots) are removed before ranking — by design.")
 st.dataframe(pd.DataFrame(display), hide_index=True, use_container_width=True)
 st.download_button(
     "⬇️ Download ranking (CSV)",
