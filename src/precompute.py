@@ -32,7 +32,7 @@ def main():
     ap.add_argument("--candidates", "-c", required=True)
     ap.add_argument("--jd", "-j", default="../job_description.md")
     ap.add_argument("--out", "-o", default="artifacts")
-    ap.add_argument("--model", default="all-MiniLM-L6-v2")
+    ap.add_argument("--model", default="BAAI/bge-small-en-v1.5")
     ap.add_argument("--batch-size", type=int, default=64)
     args = ap.parse_args()
 

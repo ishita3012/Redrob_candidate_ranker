@@ -22,7 +22,7 @@ def main():
     ap.add_argument("--candidates", "-c", required=True, help="path to candidates.jsonl")
     ap.add_argument("--jd", "-j", default="../job_description.md", help="path to JD text")
     ap.add_argument("--out", "-o", default="../submission.csv", help="output CSV path")
-    ap.add_argument("--backend", default="tfidf", choices=["tfidf", "stmodel"])
+    ap.add_argument("--backend", default="auto", choices=["auto", "tfidf", "stmodel"])
     ap.add_argument("--top-n", type=int, default=100)
     ap.add_argument("--quiet", action="store_true")
     args = ap.parse_args()

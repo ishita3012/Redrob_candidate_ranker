@@ -116,9 +116,19 @@ def _stmodel_scores(candidates: List[Dict[str, Any]], spec: JDSpec,
 
 
 def compute_semantic_scores(candidates: List[Dict[str, Any]], spec: JDSpec,
-                            backend: str = "tfidf", artifacts_dir: str = "artifacts"
+                            backend: str = "auto", artifacts_dir: str = "artifacts"
                             ) -> Dict[str, float]:
-    """Return {candidate_id: semantic_score in 0..1} over the given (recalled) pool."""
+    """Return {candidate_id: semantic_score in 0..1} over the given (recalled) pool.
+
+    backend="auto" (default) uses precomputed embeddings when artifacts exist, else the
+    dependency-free TF-IDF backend — so a repo with artifacts ranks with embeddings and
+    one without still reproduces deterministically.
+    """
+    import os
+    if backend == "auto":
+        backend = ("stmodel"
+                   if os.path.exists(os.path.join(artifacts_dir, "candidate_embeddings.npy"))
+                   else "tfidf")
     if backend == "stmodel":
         try:
             return _stmodel_scores(candidates, spec, artifacts_dir)
