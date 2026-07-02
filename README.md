@@ -1,4 +1,4 @@
-# Intelligent Candidate Ranker — Redrob Hackathon
+# Intelligent Candidate Ranker — Redrob
 
 A JD-agnostic, two-stage **retrieve → rank** system that ranks 100,000 candidates
 against a job description by reasoning about *evidence* and *availability*, not keyword
