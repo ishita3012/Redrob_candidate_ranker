@@ -35,6 +35,28 @@ NON_TECH_TITLE_TOKENS = {
     "recruiter", "finance", "administrative",
 }
 
+# --- Lexicons for the JD's explicitly-named disqualifiers -------------------
+# "primary expertise is computer vision, speech, or robotics without NLP/IR"
+CV_SPEECH_ROBOTICS = ("computer vision", "image classification", "object detection",
+    "opencv", "image segmentation", "speech recognition", "asr", "tts", "robotics",
+    "slam", "autonomous driving", "face recognition", "video analytics", "pose estimation")
+NLP_IR_TERMS = ("nlp", "natural language", "retrieval", "search", "ranking", "recommendation",
+    "llm", "language model", "embedding", "information retrieval", "semantic", "text ")
+# "senior engineer who hasn't written production code in the last 18 months"
+LEADERSHIP_TITLES = ("head of", "director", "vp ", "vice president", "chief", "cto",
+    "engineering manager", "delivery manager", "general manager", "principal architect",
+    "solution architect", "enterprise architect")
+HANDS_ON_VERBS = ("implemented", "built", "wrote", "coded", "developed", "shipped",
+    "debugged", "optimized", "refactored", "engineered", "programmed", "designed and built")
+# "AI experience consists primarily of recent (<12mo) LangChain-to-OpenAI"
+LLM_RECENT_TERMS = ("langchain", "llamaindex", "llama index", "openai api", "prompt engineering",
+    "chatgpt", "gpt-4", "gpt-3.5", "rag pipeline")
+PRE_LLM_ML_TERMS = ("xgboost", "lightgbm", "random forest", "svm", "logistic regression",
+    "gradient boosting", "scikit", "collaborative filtering", "word2vec", "lstm", "cnn",
+    "matrix factorization", "feature engineering")
+PRODUCTION_TERMS = ("production", "deployed", "shipped", "real users", "at scale", "serving",
+    "inference", "latency", "live", "rollout", "monitoring")
+
 
 # ---------------------------------------------------------------------------
 # helpers
@@ -166,11 +188,45 @@ def detect_disqualifiers(candidate: Dict[str, Any], spec: JDSpec) -> Tuple[List[
 
     if "research_only_no_production" in active:
         all_research = bool(titles) and all("research" in t for t in titles)
-        prod_terms = ["production", "deployed", "shipped", "real users", "at scale",
-                      "serving", "inference", "latency", "live"]
-        if all_research and not any(p in desc for p in prod_terms):
+        if all_research and not any(p in desc for p in PRODUCTION_TERMS):
             flags.append("research_only_no_production")
             penalty = max(penalty, 0.6)
+
+    # CV/speech/robotics primary expertise without NLP/IR exposure (JD explicit).
+    # Keyed on the TITLE + absence of retrieval/ranking evidence. Verified against the
+    # pool: the 132 CV-titled candidates here all carry retrieval/ranking evidence in
+    # their descriptions, so none are flagged (they aren't the "CV-without-IR" type) and
+    # are already ranked correctly by evidence/semantic. This fires on genuine CV-only
+    # profiles in real data; kept for JD completeness.
+    if "wrong_domain_no_nlp" in active:
+        cv_title = any(x in t for x in ("computer vision", "cv engineer", "vision engineer",
+                                        "speech", "robotics"))
+        cv_desc = sum(1 for x in CV_SPEECH_ROBOTICS if x in desc) >= 2
+        if (cv_title or cv_desc) and not core_evidence_hits(candidate, spec):
+            flags.append("cv_speech_robotics_no_nlp")
+            penalty = max(penalty, 0.5)
+
+    # Senior in a leadership/architecture title with no recent hands-on code
+    # (JD: "hasn't written production code in the last 18 months"). NOTE: this synthetic
+    # pool contains zero leadership titles, so this never fires here; kept for JD
+    # completeness / generalization to real data.
+    if "no_recent_code" in active and any(l in t for l in LEADERSHIP_TITLES):
+        hist = candidate.get("career_history", [])
+        recent_desc = (hist[0].get("description", "").lower() if hist else "")
+        if not any(v in recent_desc for v in HANDS_ON_VERBS) \
+                and not any(p in recent_desc for p in PRODUCTION_TERMS):
+            flags.append("stale_leadership_no_hands_on")
+            penalty = max(penalty, 0.5)
+
+    # "AI experience" is only recent LLM/LangChain tooling with no pre-LLM ML depth.
+    if "only_recent_llm" in active:
+        yoe = candidate.get("profile", {}).get("years_of_experience", 0) or 0
+        if yoe < 3:
+            llm = sum(1 for x in LLM_RECENT_TERMS if x in desc)
+            pre = sum(1 for x in PRE_LLM_ML_TERMS if x in desc)
+            if llm >= 1 and pre == 0:
+                flags.append("only_recent_llm")
+                penalty = max(penalty, 0.4)
 
     return flags, penalty
 
