@@ -78,6 +78,33 @@ fit-#133 to **#66**. This is the differentiator the challenge is fishing for.
 
 ---
 
+## Generalization: what's JD-agnostic vs domain-scoped
+
+Being upfront about the boundary, because it's more honest than "works on any JD": the
+**pipeline** is JD-agnostic — every value flows from the parsed `JDSpec`. The
+**vocabulary** it draws on (concept library, role titles, city gazetteer) is scoped to
+the AI/ML + India domain.
+
+| Feature | Generalizes to any JD? | Why |
+|---|---|---|
+| `semantic` | ✅ fully | embeds any JD's ideal-candidate text |
+| `experience` | ✅ fully | parses the range from any JD |
+| `title` | ⚠️ + fallback | role vocab is AI/ML; else falls back to the JD's title line |
+| `evidence` | ⚠️ + fallback | concept library is AI/ML; else falls back to JD-derived keywords |
+| `location` | ⚠️ India gazetteer | non-Indian cities go neutral |
+| `product` | ⚠️ India-centric | consulting-firm list is India-oriented |
+| `skill_corroboration` | ⚠️ ML keywords | filters assessments by ML terms |
+| `stability` | generic prior | JD-independent job-hopping heuristic |
+
+Swapping in **another AI/ML JD** needs no code change. For a **different domain**, the
+`title` and `evidence` features fall back to signal derived directly from the JD text
+(graceful degradation instead of scoring zero), and full support is a matter of
+**extending the concept library / gazetteers — data, not logic**. The fallback fires
+only when the library is silent, so it can never alter a covered JD (verified:
+byte-identical output on this JD with the fallback in place).
+
+---
+
 ## Results (verified on the full 100K)
 
 | Metric | Value |

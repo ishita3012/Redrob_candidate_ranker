@@ -145,13 +145,26 @@ adjacent title, consistency flags). On the full run all 100 reasonings are disti
 
 ---
 
-## 8. Generalization
+## 8. Generalization (and its honest boundary)
 
-The pipeline passes the "second JD" test by construction: titles, bands, locations,
-concepts, evidence terms, and disqualifiers all come from the parsed `JDSpec`. A backend
-or distributed-systems JD would activate different concepts (and skip embeddings/ranking
-ones) with no code change. The reusable knowledge lives in the concept library — a
-recruiter's vocabulary — which is extended, not rewritten, for new domains.
+The **pipeline** is JD-agnostic by construction: titles, bands, locations, concepts,
+evidence terms, and disqualifiers all come from the parsed `JDSpec`. The **vocabulary**
+it draws on is domain-scoped, and we're explicit about that rather than claiming "works
+on any JD":
+
+- **Fully general:** `semantic` (embeds any JD text) and `experience` (parses any range).
+- **AI/ML-scoped, with graceful fallback:** `title` (role vocab) and `evidence` (concept
+  library) are AI/ML. When the library doesn't recognize a JD's domain, `parse_jd`
+  derives fallback role-title keys from the JD's title line and fallback evidence
+  keywords from the JD text (`_fallback_role_titles`, `_fallback_evidence_terms`), so a
+  novel-domain JD degrades gracefully instead of scoring zero. **These fire only when the
+  primary path is empty**, so a covered JD is provably unaffected (byte-identical output
+  verified on this JD).
+- **Geo/domain-scoped:** `location` (Indian-city gazetteer), `product` (India consulting
+  list), `skill_corroboration` (ML assessment keywords). Out-of-scope inputs go neutral.
+
+So: swapping in **another AI/ML JD** needs no code change; supporting a **new domain** is
+a matter of **extending the concept library and gazetteers — data, not logic**.
 
 ---
 

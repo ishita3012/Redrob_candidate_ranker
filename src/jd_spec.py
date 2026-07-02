@@ -143,6 +143,47 @@ ROLE_TITLE_VOCAB = {
 ADJACENT_TITLE_VOCAB = ["software engineer", "backend engineer", "data engineer",
                         "platform engineer", "research scientist", "full stack"]
 
+# Words too generic to be useful as fallback role/evidence terms.
+_FALLBACK_STOP = {
+    "senior", "junior", "lead", "staff", "principal", "founding", "team", "member",
+    "full", "time", "role", "position", "experience", "years", "year", "work", "working",
+    "with", "have", "will", "that", "this", "your", "you", "our", "and", "the", "for",
+    "who", "what", "how", "are", "not", "but", "they", "them", "their", "from", "into",
+    "about", "would", "should", "could", "want", "need", "looking", "candidate", "job",
+    "company", "well", "kind", "like", "some", "most", "much", "very", "also", "been",
+    "were", "here", "there", "these", "those", "which", "when", "where", "over",
+}
+
+
+def _fallback_role_titles(text: str) -> List[str]:
+    """Derive role-title match keys from the JD's title line — used only when the
+    role-title vocabulary doesn't recognize the JD's domain."""
+    first = ""
+    m = re.search(r"(?:job\s+description|job\s+title|role|position)\s*[:\-]\s*(.+)", text, re.I)
+    if m:
+        first = m.group(1)
+    else:
+        for line in text.splitlines():
+            if line.strip():
+                first = line.strip()
+                break
+    head = re.split(r"[—\-|(,\n]", first)[0].lower()
+    toks = [t for t in re.findall(r"[a-z]+", head) if t not in _FALLBACK_STOP and len(t) > 2]
+    keys: List[str] = []
+    if len(toks) >= 2:
+        keys.append(" ".join(toks[-2:]))  # e.g. "marketing manager", "mechanical engineer"
+    keys.extend(toks)
+    return list(dict.fromkeys(keys))
+
+
+def _fallback_evidence_terms(text: str, k: int = 15) -> List[str]:
+    """Derive evidence keywords straight from the JD text — used only when the concept
+    library activates no concepts for this JD (i.e. an out-of-vocabulary domain)."""
+    from collections import Counter
+    toks = [t for t in re.findall(r"[a-z][a-z\+\#\.]{3,}", text.lower())
+            if t not in _FALLBACK_STOP]
+    return [w for w, _ in Counter(toks).most_common(k)]
+
 
 @dataclass
 class JDSpec:
@@ -295,6 +336,19 @@ def parse_jd(text: str) -> JDSpec:
         sections.get("read_between", ""),
         sections.get("absolutely_need", ""),
     ])).strip() or text
+
+    # --- Graceful degradation for out-of-vocabulary JDs ---
+    # If the concept library / role vocab don't recognize this JD's domain, derive
+    # fallback title + evidence signal straight from the JD text so a novel-domain JD
+    # still ranks on more than semantics alone. These fire ONLY when the primary path
+    # is empty, so a covered JD (e.g. this AI/ML one) is completely unaffected.
+    if not spec.role_titles:
+        spec.role_titles = _fallback_role_titles(text)
+    if not spec.core_evidence_terms:
+        fb = _fallback_evidence_terms(must_text)
+        spec.core_evidence_terms = fb
+        if not spec.evidence_terms:
+            spec.evidence_terms = fb
 
     return spec
 
