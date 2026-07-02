@@ -9,7 +9,7 @@ baked into the code.
 > ```bash
 > python src/rank.py --candidates ../candidates.jsonl --jd job_description.md --out submission.csv
 > ```
-> ~14s on the full 100K pool · validator passes · 0 honeypots in top 100.
+> ~16s on the full 100K pool · validator passes · 0 honeypots in top 100.
 
 ---
 
@@ -33,7 +33,7 @@ JD says and what it means"*, and *"down-weight"* candidates who aren't actually 
 ## Approach: a two-stage retrieve → rank pipeline
 
 ```
-OFFLINE (once, network allowed)        ONLINE (rank.py — CPU only, no network, ~14s)
+OFFLINE (once, network allowed)        ONLINE (rank.py — CPU only, no network, ~16s)
 ─────────────────────────────          ─────────────────────────────────────────────
 precompute.py                          jd_spec.py   parse JD → JDSpec (no hardcoding)
   MiniLM embeddings of evidence text       │
@@ -109,7 +109,7 @@ byte-identical output on this JD with the fallback in place).
 
 | Metric | Value |
 |---|---|
-| Ranking-step runtime | ~14s (budget: 5 min) |
+| Ranking-step runtime | ~16s (budget: 5 min) |
 | Peak memory | < 2 GB (budget: 16 GB) |
 | Honeypots in top 100 | 0 |
 | Stage-1 recall pool | 2,658 candidates |
@@ -146,7 +146,7 @@ no model or network.
 
 | Constraint | Limit | This system |
 |---|---|---|
-| Runtime | ≤ 5 min | ~14s |
+| Runtime | ≤ 5 min | ~16s |
 | Memory | ≤ 16 GB | < 2 GB |
 | Compute | CPU only | ✅ |
 | Network (rank step) | off | ✅ (embeddings precomputed offline) |

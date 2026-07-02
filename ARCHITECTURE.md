@@ -170,7 +170,7 @@ a matter of **extending the concept library and gazetteers — data, not logic**
 
 ## 9. Compute & reproducibility
 
-- Ranking step: **CPU-only, no network**, ~14s on 100K, < 2 GB RAM.
+- Ranking step: **CPU-only, no network**, ~16s on 100K, < 2 GB RAM.
 - Single reproduce command: `python src/rank.py --candidates <file> --jd <file> --out <file>`.
 - Embedding precomputation is the only step that may use the network, and it is offline
   and optional; the default TF-IDF backend needs nothing beyond the standard library.

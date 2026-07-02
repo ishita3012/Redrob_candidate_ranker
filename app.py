@@ -1,9 +1,9 @@
 """
-Minimal Streamlit sandbox for the JD-agnostic candidate ranker (Redrob hackathon).
+Intelligent Candidate Ranker — simple web app.
 
-This is the required reproducibility demo, not a product UI: load a small candidate
-sample, run the full two-stage pipeline, show and download the ranked CSV. Uses the
-TF-IDF backend so the Space needs no model download or network.
+Upload a candidate file (.json / .jsonl) and get the top matches back, ranked by an
+evidence-based scoring model with behavioral availability weighting. Runs the full
+ranking pipeline locally (CPU only, no network).
 
     streamlit run app.py
 """
@@ -17,37 +17,71 @@ import streamlit as st
 ROOT = Path(__file__).parent
 sys.path.insert(0, str(ROOT / "src"))
 
-from jd_spec import load_jd                          # noqa: E402
-from ranker import rank_candidate_list               # noqa: E402
-from gates import passes_prefilter, detect_honeypot  # noqa: E402
+from jd_spec import load_jd                  # noqa: E402
+from ranker import rank_candidate_list       # noqa: E402
+from scoring import FIT_WEIGHTS              # noqa: E402
 
-st.set_page_config(page_title="Intelligent Candidate Ranker", layout="wide")
-st.title("Intelligent Candidate Ranker")
-st.caption("JD-agnostic, two-stage retrieve→rank. The JD is parsed from "
-           "`job_description.md` — swap the JD, no code changes.")
+st.set_page_config(page_title="Intelligent Candidate Ranker", page_icon="🎯", layout="wide")
+st.title("🎯 Intelligent Candidate Ranker")
+st.write("Upload a candidate pool and get the strongest matches — ranked on proven "
+         "experience and real availability, not keyword counts.")
 
-top_n = st.sidebar.slider("Top-N to return", 5, 100, 25)
-uploaded = st.sidebar.file_uploader("Candidates (.json / .jsonl, ≤100)",
-                                    type=["json", "jsonl"])
+# --- Scoring model (weighting only; no dataset/role specifics) ---
+with st.sidebar:
+    st.header("Scoring model")
+    st.caption("Final score = **relevance × reachability**")
+    st.markdown("**Relevance** — weighted fit signals:")
+    st.dataframe(
+        pd.DataFrame(
+            [{"signal": k, "weight": v} for k, v in FIT_WEIGHTS.items()]
+        ).sort_values("weight", ascending=False),
+        hide_index=True, use_container_width=True,
+    )
+    st.markdown("**Reachability** — behavioral availability multiplier "
+                "(response rate, recency, notice period, open-to-work).")
+    top_n = st.slider("How many top candidates to return", 5, 100, 20)
 
-if uploaded is not None:
-    raw = uploaded.read().decode("utf-8")
-    try:
-        candidates = json.loads(raw)
-        candidates = candidates if isinstance(candidates, list) else [candidates]
-    except json.JSONDecodeError:
-        candidates = [json.loads(x) for x in raw.splitlines() if x.strip()]
-else:
-    candidates = json.load(open(ROOT / "sample_candidates.json"))
+# --- Single upload ---
+uploaded = st.file_uploader("Upload candidates (.json or .jsonl)", type=["json", "jsonl"])
+
+if uploaded is None:
+    st.info("⬆️  Upload a candidate file to rank. Each record should include the "
+            "candidate's profile, career history, skills, and engagement signals.")
+    st.stop()
+
+raw = uploaded.read().decode("utf-8")
+try:
+    candidates = json.loads(raw)
+    candidates = candidates if isinstance(candidates, list) else [candidates]
+except json.JSONDecodeError:
+    candidates = [json.loads(line) for line in raw.splitlines() if line.strip()]
 
 spec = load_jd(str(ROOT / "job_description.md"))
-n_survive = sum(1 for c in candidates if passes_prefilter(c, spec))
-n_hp = sum(1 for c in candidates if detect_honeypot(c)[0])
-st.caption(f"{len(candidates)} candidates · {n_survive} passed Stage-1 recall · "
-           f"{n_hp} honeypots filtered")
+rows, top = rank_candidate_list(candidates, spec, backend="tfidf", top_n=top_n)
 
-rows, _ = rank_candidate_list(candidates, spec, backend="tfidf", top_n=top_n)
-df = pd.DataFrame(rows)
-st.dataframe(df, use_container_width=True, hide_index=True)
-st.download_button("Download submission.csv", df.to_csv(index=False).encode("utf-8"),
-                   file_name="submission.csv", mime="text/csv")
+# --- Enriched results for display ---
+by_id = {c.get("candidate_id"): c for c in candidates}
+display = []
+for r in rows:
+    c = by_id.get(r["candidate_id"], {})
+    p = c.get("profile", {})
+    s = c.get("redrob_signals", {})
+    display.append({
+        "Rank": r["rank"],
+        "Candidate": r["candidate_id"],
+        "Title": p.get("current_title", ""),
+        "Experience": f"{p.get('years_of_experience', '')}y",
+        "Location": p.get("location", ""),
+        "Response rate": f"{(s.get('recruiter_response_rate') or 0):.0%}",
+        "Notice": f"{s.get('notice_period_days', '')}d",
+        "Score": r["score"],
+        "Why": r["reasoning"],
+    })
+
+st.success(f"Ranked {len(candidates)} candidates → showing top {len(rows)}.")
+st.dataframe(pd.DataFrame(display), hide_index=True, use_container_width=True)
+st.download_button(
+    "⬇️ Download ranking (CSV)",
+    pd.DataFrame(rows).to_csv(index=False).encode("utf-8"),
+    file_name="ranking.csv", mime="text/csv",
+)

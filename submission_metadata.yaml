@@ -4,7 +4,7 @@
 # ============================================================================
 # Team identity
 # ============================================================================
-team_name: "TEAM-NAME"  # CONFIRM — used in leaderboard and announcements
+team_name: "Ostrich"  # CONFIRM — used in leaderboard and announcements
 
 primary_contact:
   name: "Ishita Rastogi"
@@ -22,7 +22,7 @@ team_members:
 # ============================================================================
 github_repo: "https://github.com/ishita3012/Redrob"
 
-sandbox_link: "https://huggingface.co/spaces/ishita3012/redrob-ranker"  # CONFIRM — create the Space, then paste its URL
+sandbox_link: "https://ostrich-candidate-ranker.streamlit.app"  # CONFIRM — paste your deployed Streamlit Cloud URL
 
 reproduce_command: "python src/rank.py --candidates ./candidates.jsonl --jd job_description.md --out submission.csv"
 # Default TF-IDF backend: CPU-only, no network, ~14s on 100K, standard library only.
@@ -38,8 +38,8 @@ compute:
   os: "macOS 13.3"
   uses_gpu_for_inference: false
   has_network_during_ranking: false
-  pre_computation_required: false               # true only if submitting with --backend stmodel
-  pre_computation_time_minutes: 0               # ~5-10 min if precomputing MiniLM embeddings
+  pre_computation_required: false               # submitted run uses the TF-IDF backend (no precompute)
+  pre_computation_time_minutes: 0               # optional BGE embeddings precompute runs offline if used
 
 # ============================================================================
 # AI tools declaration  (transparency only; honest declaration is not penalized)
@@ -60,17 +60,20 @@ ai_usage_summary: |
 methodology_summary: |
   A JD-agnostic, two-stage retrieve->rank pipeline. The JD is parsed into a structured
   spec (jd_spec) — titles, experience band, locations, must-have/disqualifier concepts,
-  evidence terms — so the ranker is not hardcoded to one JD. Stage 1 (recall) surgically
-  gates honeypots and keeps only candidates whose title or career-description *evidence*
-  matches the JD, cutting 100K to ~2.6K. Data analysis showed skills lists are uniform
-  noise (the keyword-stuffer trap), so fit is driven by domain evidence in career
-  descriptions, not skills. Stage 2 (rerank) scores composite = fit x availability x
-  (1 - disqualifier) x authenticity, where availability is a behavioral multiplier
-  calibrated to the pool's measured percentiles (per the JD's instruction to down-weight
-  unavailable candidates). Honeypot detection uses sharp impossibilities only; a
-  grad-year heuristic that false-flagged ~21K real candidates was rejected. Runtime ~14s
-  on CPU, no network. Semantic similarity embeds evidence text (not skills) against the
-  JD's ideal-candidate paragraph.
+  evidence terms — so the ranker is not hardcoded to one JD; unknown domains fall back to
+  terms derived from the JD text. Stage 1 (recall) surgically gates honeypots and keeps
+  only candidates whose title or career-description *evidence* matches the JD, cutting
+  100K to ~2.6K. Data analysis showed skills lists are uniform noise (the keyword-stuffer
+  trap), so fit is driven by domain evidence in career descriptions, not skills. Stage 2
+  (rerank) scores each candidate as relevance x reachability, taken from the JD's own
+  "great fit but not actually available" framing: relevance is trust- and red-flag-
+  adjusted JD fit (evidence, title, semantic, product-vs-services, experience, stability,
+  location), and reachability is a behavioral availability multiplier calibrated to the
+  pool's measured percentiles. Honeypot detection uses sharp impossibilities only; a
+  grad-year heuristic that false-flagged ~21K real candidates was rejected. Semantic
+  similarity embeds evidence text (not skills); TF-IDF by default, optional BGE-small
+  embeddings. Runtime ~16s on CPU, <2GB RAM, no network. 16-test suite; 0 honeypots in
+  the top 100.
 
 # ============================================================================
 # Declarations

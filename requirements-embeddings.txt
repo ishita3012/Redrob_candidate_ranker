@@ -1,0 +1,4 @@
+# Optional: semantic embeddings backend (precompute.py + rank.py --backend stmodel).
+# Not needed for the default TF-IDF ranking or the web app.
+sentence-transformers>=2.2.0
+numpy>=1.24.0
